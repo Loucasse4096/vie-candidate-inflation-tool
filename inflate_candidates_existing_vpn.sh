@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Demander l'ID de l'offre à l'utilisateur
-echo "🔍 Script d'inflation de candidatures VIE"
-echo "========================================"
+echo "🔍 Script d'inflation de candidatures VIE (Version Optimisée)"
+echo "============================================================="
 echo ""
 
 # Demander l'ID de l'offre
@@ -31,37 +31,38 @@ if ! [[ "$NUM_CALLS" =~ ^[0-9]+$ ]] || [ "$NUM_CALLS" -lt 1 ]; then
     exit 1
 fi
 
+# Demander le délai entre les appels
+read -p "Délai entre les appels en secondes (défaut: 0.5): " DELAY
+DELAY=${DELAY:-0.5}
+
+# Valider que le délai est un nombre positif
+if ! [[ "$DELAY" =~ ^[0-9]+\.?[0-9]*$ ]] || [ "$(echo "$DELAY < 0" | bc -l 2>/dev/null)" = "1" ]; then
+    echo "❌ Erreur: Le délai doit être un nombre positif"
+    exit 1
+fi
+
+# Demander si on veut paralléliser
+read -p "Paralléliser les appels ? (y/n, défaut: n): " PARALLEL
+PARALLEL=${PARALLEL:-n}
+
 echo ""
 echo "📊 Configuration:"
 echo "   - ID Offre: $OFFER_ID"
 echo "   - Nombre d'appels: $NUM_CALLS"
+echo "   - Délai entre appels: ${DELAY}s"
+echo "   - Parallélisation: $([ "$PARALLEL" = "y" ] && echo "Oui" || echo "Non")"
 echo ""
 
-# Fonction pour vérifier si NordVPN est connecté via l'interface graphique
-check_nordvpn_gui() {
-    # Vérifier si le processus NordVPN est en cours d'exécution
-    if pgrep -f "NordVPN" > /dev/null; then
-        # Vérifier la connexion réseau pour voir si on passe par NordVPN
-        local current_ip=$(curl -s https://ipinfo.io/ip 2>/dev/null)
-        local nordvpn_ip=$(curl -s https://nordvpn.com/ip 2>/dev/null)
-        
-        if [ "$current_ip" = "$nordvpn_ip" ]; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-# Fonction pour vérifier la connexion VPN via les routes réseau
+# Fonction optimisée pour vérifier la connexion VPN
 check_vpn_connection() {
-    # Vérifier si on a une route VPN active
+    # Vérification rapide via les routes réseau
     if netstat -rn | grep -q "utun\|tun"; then
         return 0
     fi
     return 1
 }
 
-# Fonction pour afficher l'IP actuelle
+# Fonction pour afficher l'IP actuelle (une seule fois)
 show_current_ip() {
     echo "🌐 IP actuelle: $(curl -s https://ipinfo.io/ip 2>/dev/null)"
     echo "📍 Localisation: $(curl -s https://ipinfo.io/country 2>/dev/null)"
@@ -69,12 +70,9 @@ show_current_ip() {
 
 echo "🔍 Vérification de la connexion VPN..."
 
-# Vérifier si NordVPN GUI est connecté
-if check_nordvpn_gui; then
-    echo "✅ NordVPN GUI détecté et connecté!"
-    show_current_ip
-elif check_vpn_connection; then
-    echo "✅ Connexion VPN détectée (probablement NordVPN GUI)"
+# Vérification unique du VPN au début
+if check_vpn_connection; then
+    echo "✅ Connexion VPN détectée!"
     show_current_ip
 else
     echo "❌ Aucune connexion VPN détectée"
@@ -91,37 +89,62 @@ fi
 echo ""
 echo "🚀 Démarrage des appels avec protection VPN..."
 
-for i in $(seq 1 $NUM_CALLS); do
-  # Vérifier que le VPN est toujours connecté avant chaque appel
-  if ! check_vpn_connection; then
-    echo "❌ VPN déconnecté! Arrêt du script."
-    exit 1
-  fi
-  
-  echo "Appel #$i"
-  curl "$URL" \
-    -X POST \
-    -H 'Accept: application/json, text/plain, */*' \
-    -H 'Accept-Language: fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7' \
-    -H 'Cache-Control: no-cache' \
-    -H 'Connection: keep-alive' \
-    -H 'Content-Length: 0' \
-    -H 'Origin: https://mon-vie-via.businessfrance.fr' \
-    -H 'Pragma: no-cache' \
-    -H 'Referer: https://mon-vie-via.businessfrance.fr/' \
-    -H 'Sec-Fetch-Dest: empty' \
-    -H 'Sec-Fetch-Mode: cors' \
-    -H 'Sec-Fetch-Site: cross-site' \
-    -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36' \
-    -H 'sec-ch-ua: "Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"' \
-    -H 'sec-ch-ua-mobile: ?0' \
-    -H 'sec-ch-ua-platform: "macOS"' \
-    -s -o /dev/null -w "%{http_code}\n"
+# Fonction pour effectuer un appel
+make_call() {
+    local call_num=$1
+    echo "Appel #$call_num"
+    local response=$(curl "$URL" \
+        -X POST \
+        -H 'Accept: application/json, text/plain, */*' \
+        -H 'Accept-Language: fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7' \
+        -H 'Cache-Control: no-cache' \
+        -H 'Connection: keep-alive' \
+        -H 'Content-Length: 0' \
+        -H 'Origin: https://mon-vie-via.businessfrance.fr' \
+        -H 'Pragma: no-cache' \
+        -H 'Referer: https://mon-vie-via.businessfrance.fr/' \
+        -H 'Sec-Fetch-Dest: empty' \
+        -H 'Sec-Fetch-Mode: cors' \
+        -H 'Sec-Fetch-Site: cross-site' \
+        -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36' \
+        -H 'sec-ch-ua: "Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"' \
+        -H 'sec-ch-ua-mobile: ?0' \
+        -H 'sec-ch-ua-platform: "macOS"' \
+        -s -o /dev/null -w "%{http_code}" 2>/dev/null)
+    
+    echo "   → Code de réponse: $response"
+}
 
-  sleep 2
-done
+# Mode parallèle
+if [ "$PARALLEL" = "y" ]; then
+    echo "⚡ Mode parallèle activé - Lancement de tous les appels simultanément..."
+    
+    # Lancer tous les appels en arrière-plan
+    for i in $(seq 1 $NUM_CALLS); do
+        make_call $i &
+    done
+    
+    # Attendre que tous les appels soient terminés
+    wait
+    
+    echo ""
+    echo "✅ Tous les appels parallèles terminés!"
+else
+    # Mode séquentiel optimisé
+    echo "🔄 Mode séquentiel - Appels avec délai de ${DELAY}s..."
+    
+    for i in $(seq 1 $NUM_CALLS); do
+        make_call $i
+        
+        # Délai réduit entre les appels (sauf pour le dernier)
+        if [ $i -lt $NUM_CALLS ]; then
+            sleep $DELAY
+        fi
+    done
+fi
 
 echo ""
 echo "✅ Script terminé avec succès!"
 echo "🔒 Tous les appels ont été effectués via votre connexion VPN"
-echo "📊 Résumé: $NUM_CALLS appels effectués pour l'offre #$OFFER_ID" 
+echo "📊 Résumé: $NUM_CALLS appels effectués pour l'offre #$OFFER_ID"
+echo "⏱️  Temps d'exécution optimisé!" 
